@@ -9,11 +9,17 @@ import com.sparta.easyspring.post.dto.PostRequestDto;
 import com.sparta.easyspring.post.dto.PostResponseDto;
 import com.sparta.easyspring.post.entity.Post;
 import com.sparta.easyspring.post.repository.PostRepository;
+import com.sparta.easyspring.postlike.entity.PostLike;
+import com.sparta.easyspring.postlike.repository.PostLikeRepository;
+import java.util.ArrayList;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Sort.Direction;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,19 +31,21 @@ import static com.sparta.easyspring.exception.ErrorEnum.*;
 @Service
 @RequiredArgsConstructor
 public class PostService {
+
     private final PostRepository postRepository;
+    private final PostLikeRepository postLikeRepository;
     private final UserService userService;
     private final FollowService followService;
 
     public PostResponseDto addPost(PostRequestDto requestDto, User user) {
-        Post post = new Post(requestDto,user);
+        Post post = new Post(requestDto, user);
         postRepository.save(post);
         return new PostResponseDto(post);
     }
 
     public List<PostResponseDto> getAllPost(int page, String sortBy) {
-        Sort sort = Sort.by(Sort.Direction.DESC,sortBy);
-        Pageable pageable = PageRequest.of(page,5,sort);
+        Sort sort = Sort.by(Sort.Direction.DESC, sortBy);
+        Pageable pageable = PageRequest.of(page, 5, sort);
         Page<PostResponseDto> postPage = postRepository.findAll(pageable).map(PostResponseDto::new);
         List<PostResponseDto> postList = postPage.getContent();
         return postList;
@@ -51,7 +59,7 @@ public class PostService {
 
     public PostResponseDto editPost(Long postId, PostRequestDto requestDto, User user) {
         Post post = findPostbyId(postId);
-        if(!post.getUser().getId().equals(user.getId())){
+        if (!post.getUser().getId().equals(user.getId())) {
             throw new CustomException(INCORRECT_USER);
         }
         post.update(requestDto);
@@ -61,45 +69,69 @@ public class PostService {
 
     public void deletePost(Long postId, User user) {
         Post post = findPostbyId(postId);
-        if(!post.getUser().getId().equals(user.getId())){
+        if (!post.getUser().getId().equals(user.getId())) {
             throw new CustomException(INCORRECT_USER);
         }
         postRepository.delete(post);
     }
-    public List<PostResponseDto> getAllFollowPost(Long followingId, User user,int page, String sortBy){
+
+    public List<PostResponseDto> getAllFollowPost(Long followingId, User user, int page,
+        String sortBy) {
         User checkUser = userService.findUserById(followingId);
-        Follow checkFollow = followService.findFollowById(checkUser.getId(),user);
-        if(checkFollow==null){
+        Follow checkFollow = followService.findFollowById(checkUser.getId(), user);
+        if (checkFollow == null) {
             throw new CustomException(NOT_FOLLOW_USER);
         }
-        Sort sort = Sort.by(Sort.Direction.DESC,sortBy);
-        Pageable pageable = PageRequest.of(page,5,sort);
+        Sort sort = Sort.by(Sort.Direction.DESC, sortBy);
+        Pageable pageable = PageRequest.of(page, 5, sort);
 
-        Page<Post> followPostPage = postRepository.findAllByUser(checkUser,pageable);
+        Page<Post> followPostPage = postRepository.findAllByUser(checkUser, pageable);
         List<PostResponseDto> followPostList = followPostPage
-                .stream()
-                .map(PostResponseDto::new)
-                .collect(Collectors.toList());
+            .stream()
+            .map(PostResponseDto::new)
+            .collect(Collectors.toList());
 
         return followPostList;
     }
 
     @Transactional
-    public void increaseLikes(Long postId){
+    public void increaseLikes(Long postId) {
         Post post = findPostbyId(postId);
         post.increaseLikes();
     }
 
     @Transactional
-    public void decreaseLikes(Long postId){
+    public void decreaseLikes(Long postId) {
         Post post = findPostbyId(postId);
         post.decreaseLikes();
     }
 
-    public Post findPostbyId(Long postId){
+    public Post findPostbyId(Long postId) {
         Post post = postRepository.findById(postId).orElseThrow(
-                ()->new CustomException(POST_NOT_FOUND)
+            () -> new CustomException(POST_NOT_FOUND)
         );
         return post;
+    }
+
+    public ResponseEntity<List<PostResponseDto>> getAllLikePost(User user,int page,String sortBy) {
+
+        Sort sort = Sort.by(Direction.DESC, sortBy);
+        Pageable pageable = PageRequest.of(page, 5, sort);
+
+        Page<PostLike> postLikeList = postLikeRepository.findAllByUserId(user.getId(),pageable);
+
+        if (postLikeList.isEmpty()) {
+            return ResponseEntity.badRequest().body(null);
+        }
+
+        List<Post> postList = new ArrayList<>();
+        for (PostLike postLike : postLikeList) {
+            Optional<Post> post = postRepository.findById(postLike.getPost().getId());
+            post.ifPresent(postList::add);
+        }
+
+        List<PostResponseDto> response = postList.stream().map(PostResponseDto::new).toList();
+
+        return ResponseEntity.ok(response);
     }
 }
